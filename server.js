@@ -161,27 +161,35 @@ async function getForms(token, projectId) {
 /* -------------------------
    Power BI endpoint
 --------------------------*/
-app.get("/powerbi-data/:projectId", async (req, res) => {
+app.get("/api/callback", async (req, res) => {
 
-  try {
+  const code = req.query.code;
 
-    const token = await getAccessToken();
-    const projectId = req.params.projectId;
+  const response = await fetch(
+    "https://developer.api.autodesk.com/authentication/v2/token",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: code,
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        redirect_uri: REDIRECT_URI
+      })
+    }
+  );
 
-    const reviews = await getReviews(token, projectId);
-    const forms = await getForms(token, projectId);
+  const data = await response.json();
 
-    res.json({ reviews, forms });
+  refreshToken = data.refresh_token;
 
-  } catch (err) {
+  console.log("NEW REFRESH TOKEN:", refreshToken);
 
-    console.error(err);
-    res.send("Power BI data error");
-
-  }
-
+  res.send("Login successful. Token saved.");
 });
-
 
 app.listen(PORT, () => {
   console.log(`Server running at port ${PORT}`);
