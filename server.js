@@ -1,15 +1,36 @@
 require("dotenv").config();
 const express = require("express");
 const fetch = require("node-fetch");
+const fs = require("fs");
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI;
 
-let refreshToken = null;
+const TOKEN_FILE = "token.json";
+
+/* -------------------------
+   Load saved refresh token
+--------------------------*/
+function loadRefreshToken() {
+  if (fs.existsSync(TOKEN_FILE)) {
+    const data = JSON.parse(fs.readFileSync(TOKEN_FILE));
+    return data.refresh_token;
+  }
+  return null;
+}
+
+/* -------------------------
+   Save refresh token
+--------------------------*/
+function saveRefreshToken(token) {
+  fs.writeFileSync(TOKEN_FILE, JSON.stringify({ refresh_token: token }));
+}
+
+let refreshToken = loadRefreshToken();
 
 /* -------------------------
    Generate Access Token
@@ -17,7 +38,7 @@ let refreshToken = null;
 async function getAccessToken() {
 
   if (!refreshToken) {
-    throw new Error("Login first: http://localhost:3000");
+    throw new Error("Login required");
   }
 
   const response = await fetch(
@@ -40,6 +61,7 @@ async function getAccessToken() {
 
   if (data.refresh_token) {
     refreshToken = data.refresh_token;
+    saveRefreshToken(refreshToken);
     console.log("Updated refresh token:", refreshToken);
   }
 
@@ -48,7 +70,7 @@ async function getAccessToken() {
 
 
 /* -------------------------
-   Login
+   Login route
 --------------------------*/
 app.get("/", (req, res) => {
 
@@ -64,36 +86,47 @@ app.get("/", (req, res) => {
 
 
 /* -------------------------
-   OAuth Callback
+   OAuth callback
 --------------------------*/
 app.get("/callback", async (req, res) => {
 
-  const code = req.query.code;
+  try {
 
-  const response = await fetch(
-    "https://developer.api.autodesk.com/authentication/v2/token",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code: code,
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-        redirect_uri: REDIRECT_URI
-      })
-    }
-  );
+    const code = req.query.code;
 
-  const data = await response.json();
+    const response = await fetch(
+      "https://developer.api.autodesk.com/authentication/v2/token",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: code,
+          client_id: CLIENT_ID,
+          client_secret: CLIENT_SECRET,
+          redirect_uri: REDIRECT_URI
+        })
+      }
+    );
 
-  refreshToken = data.refresh_token;
+    const data = await response.json();
 
-  console.log("New refresh token:", refreshToken);
+    refreshToken = data.refresh_token;
+    saveRefreshToken(refreshToken);
 
-  res.send("Login successful.");
+    console.log("New refresh token:", refreshToken);
+
+    res.send("Login successful. Token saved.");
+
+  } catch (err) {
+
+    console.error(err);
+    res.send("OAuth error");
+
+  }
+
 });
 
 
@@ -126,7 +159,7 @@ async function getForms(token, projectId) {
 
 
 /* -------------------------
-   Power BI Endpoint
+   Power BI endpoint
 --------------------------*/
 app.get("/powerbi-data/:projectId", async (req, res) => {
 
@@ -138,10 +171,7 @@ app.get("/powerbi-data/:projectId", async (req, res) => {
     const reviews = await getReviews(token, projectId);
     const forms = await getForms(token, projectId);
 
-    res.json({
-      reviews,
-      forms
-    });
+    res.json({ reviews, forms });
 
   } catch (err) {
 
@@ -154,5 +184,5 @@ app.get("/powerbi-data/:projectId", async (req, res) => {
 
 
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`Server running at port ${PORT}`);
 });
