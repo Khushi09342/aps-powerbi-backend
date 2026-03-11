@@ -55,7 +55,7 @@ app.get("/callback", async (req, res) => {
 
     console.log("Refresh token saved");
 
-    res.send("Login successful");
+    res.send("Login successful. Your refresh token is: " + tokenData.refresh_token);
 
   } catch (err) {
     console.log(err);
