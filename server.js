@@ -9,6 +9,8 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI;
 
+let REFRESH_TOKEN = process.env.REFRESH_TOKEN;
+
 /* HOME */
 app.get("/", (req, res) => {
   res.send("APS backend running");
@@ -16,6 +18,7 @@ app.get("/", (req, res) => {
 
 /* LOGIN */
 app.get("/login", (req, res) => {
+
   const url =
     "https://developer.api.autodesk.com/authentication/v2/authorize" +
     "?response_type=code" +
@@ -28,7 +31,9 @@ app.get("/login", (req, res) => {
 
 /* CALLBACK */
 app.get("/callback", async (req, res) => {
+
   try {
+
     const code = req.query.code;
 
     const tokenRes = await fetch(
@@ -50,23 +55,25 @@ app.get("/callback", async (req, res) => {
 
     REFRESH_TOKEN = tokenData.refresh_token;
 
-    console.log("Refresh token saved");
-
-    res.send("Login successful. Your refresh token is: " + tokenData.refresh_token);
+    res.send(
+      "Login successful. Copy this refresh token and save it in Render ENV:<br><br>" +
+      tokenData.refresh_token
+    );
 
   } catch (err) {
+
     console.log(err);
     res.send("Login failed");
+
   }
+
 });
 
-/* REFRESH ACCESS TOKEN */
-let REFRESH_TOKEN = process.env.REFRESH_TOKEN;
-
+/* GET ACCESS TOKEN */
 async function getAccessToken() {
 
   if (!REFRESH_TOKEN) {
-    throw new Error("REFRESH_TOKEN missing in environment");
+    throw new Error("REFRESH_TOKEN missing in Render ENV");
   }
 
   const tokenRes = await fetch(
@@ -76,25 +83,23 @@ async function getAccessToken() {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         grant_type: "refresh_token",
-        refresh_token: saved.refresh_token,
+        refresh_token: REFRESH_TOKEN,
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET
       })
     }
   );
 
-  const newToken = await tokenRes.json();
+  const tokenData = await tokenRes.json();
 
-  if (!newToken.refresh_token) {
-    newToken.refresh_token = saved.refresh_token;
+  if (tokenData.refresh_token) {
+    REFRESH_TOKEN = tokenData.refresh_token;
   }
 
-  fs.writeFileSync(TOKEN_FILE, JSON.stringify(newToken));
-
-  return newToken.access_token;
+  return tokenData.access_token;
 }
 
-/* DATA ENDPOINT FOR POWER BI */
+/* MAIN DATA ENDPOINT */
 app.get("/data", async (req, res) => {
 
   try {
@@ -109,11 +114,11 @@ app.get("/data", async (req, res) => {
 
     const hubs = await hubsRes.json();
 
-    if (!hubs.data || hubs.data.length === 0) {
-      return res.json({ error: "No hubs found" });
-    }
+    const hub = hubs.data.find(
+      h => h.attributes.extension.type === "hubs:autodesk.bim360:Account"
+    );
 
-    const hubId = hubs.data[0].id;
+    const hubId = hub.id;
 
     /* PROJECTS */
     const projRes = await fetch(
@@ -123,10 +128,6 @@ app.get("/data", async (req, res) => {
 
     const projects = await projRes.json();
 
-    if (!projects.data || projects.data.length === 0) {
-      return res.json({ error: "No projects found" });
-    }
-
     const projectId = projects.data[0].id.replace("b.", "");
 
     /* REVIEWS */
@@ -135,9 +136,9 @@ app.get("/data", async (req, res) => {
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
 
-    const reviews = await reviewsRes.json();
+    const reviewsData = await reviewsRes.json();
 
-    const reviewList = reviews.results || reviews.data || [];
+    const reviews = reviewsData.results || [];
 
     /* FORMS */
     const formsRes = await fetch(
@@ -145,24 +146,19 @@ app.get("/data", async (req, res) => {
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
 
-    const forms = await formsRes.json();
+    const formsData = await formsRes.json();
 
-    const formArray = forms.data || forms.results || [];
-
-    const formattedForms = formArray.map(f => ({
+    const forms = (formsData.results || []).map(f => ({
       id: f.id,
       name: f.name,
       status: f.status,
       createdAt: f.createdAt,
-      fileName:
-        f.attachments && f.attachments.length > 0
-          ? f.attachments[0].fileName
-          : "No File"
+      fileName: f.attachments?.[0]?.fileName || "No File"
     }));
 
     res.json({
-      reviews: reviewList,
-      forms: formattedForms
+      reviews: reviews,
+      forms: forms
     });
 
   } catch (err) {
@@ -175,6 +171,7 @@ app.get("/data", async (req, res) => {
     });
 
   }
+
 });
 
 app.listen(PORT, () => {
