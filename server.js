@@ -65,13 +65,11 @@ async function getAccessToken() {
     console.log("Refresh token updated");
   }
 
-  console.log("Access Token:", data.access_token);
-
   return data.access_token;
 }
 
 /* -------------------------
-   Login Route
+   LOGIN
 --------------------------*/
 app.get("/", (req, res) => {
 
@@ -90,7 +88,7 @@ app.get("/", (req, res) => {
 });
 
 /* -------------------------
-   OAuth Callback
+   CALLBACK
 --------------------------*/
 app.get("/api/callback", async (req, res) => {
 
@@ -117,11 +115,10 @@ app.get("/api/callback", async (req, res) => {
 
     const data = await response.json();
 
-    console.log("OAuth response:", data);
-
     refreshToken = data.refresh_token;
-
     saveRefreshToken(refreshToken);
+
+    console.log("Refresh token saved");
 
     res.send("Login successful. Token saved.");
 
@@ -135,7 +132,7 @@ app.get("/api/callback", async (req, res) => {
 });
 
 /* -------------------------
-   DATA ENDPOINT
+   HUBS
 --------------------------*/
 app.get("/data", async (req, res) => {
 
@@ -152,23 +149,54 @@ app.get("/data", async (req, res) => {
       }
     );
 
-    const text = await response.text();
+    const data = await response.json();
 
-    console.log("Autodesk API response:", text);
-
-    res.send(text);
+    res.json(data);
 
   } catch (err) {
 
-    console.error("Server error:", err);
-    res.send("Server error");
+    console.error(err);
+    res.send("Error fetching hubs");
 
   }
 
 });
 
 /* -------------------------
-   Start server
+   PROJECTS
+--------------------------*/
+app.get("/projects", async (req, res) => {
+
+  try {
+
+    const token = await getAccessToken();
+
+    const hubId = "b.feca1f7d-8b4f-4f6d-9414-2e529b1e28d4";
+
+    const response = await fetch(
+      `https://developer.api.autodesk.com/project/v1/hubs/${hubId}/projects`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    );
+
+    const data = await response.json();
+
+    res.json(data);
+
+  } catch (err) {
+
+    console.error(err);
+    res.send("Error fetching projects");
+
+  }
+
+});
+
+/* -------------------------
+   SERVER
 --------------------------*/
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
