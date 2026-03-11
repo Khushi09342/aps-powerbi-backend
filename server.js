@@ -10,6 +10,9 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI;
 
+const HUB_ID = "b.feca1f7d-8b4f-4f6d-9414-2e529b1e28d4";
+const PROJECT_ID = "4c44226f-6e83-49af-90c1-38bc05804535";
+
 const TOKEN_FILE = "token.json";
 
 /* -------------------------
@@ -62,7 +65,6 @@ async function getAccessToken() {
   if (data.refresh_token) {
     refreshToken = data.refresh_token;
     saveRefreshToken(refreshToken);
-    console.log("Refresh token updated");
   }
 
   return data.access_token;
@@ -118,8 +120,6 @@ app.get("/api/callback", async (req, res) => {
     refreshToken = data.refresh_token;
     saveRefreshToken(refreshToken);
 
-    console.log("Refresh token saved");
-
     res.send("Login successful. Token saved.");
 
   } catch (err) {
@@ -134,7 +134,7 @@ app.get("/api/callback", async (req, res) => {
 /* -------------------------
    HUBS
 --------------------------*/
-app.get("/data", async (req, res) => {
+app.get("/hubs", async (req, res) => {
 
   try {
 
@@ -171,10 +171,8 @@ app.get("/projects", async (req, res) => {
 
     const token = await getAccessToken();
 
-    const hubId = "b.feca1f7d-8b4f-4f6d-9414-2e529b1e28d4";
-
     const response = await fetch(
-      `https://developer.api.autodesk.com/project/v1/hubs/${hubId}/projects`,
+      `https://developer.api.autodesk.com/project/v1/hubs/${HUB_ID}/projects`,
       {
         headers: {
           Authorization: `Bearer ${token}`
@@ -190,6 +188,37 @@ app.get("/projects", async (req, res) => {
 
     console.error(err);
     res.send("Error fetching projects");
+
+  }
+
+});
+
+/* -------------------------
+   REVIEWS
+--------------------------*/
+app.get("/reviews", async (req, res) => {
+
+  try {
+
+    const token = await getAccessToken();
+
+    const response = await fetch(
+      `https://developer.api.autodesk.com/construction/reviews/v1/projects/${PROJECT_ID}/reviews`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    );
+
+    const data = await response.json();
+
+    res.json(data);
+
+  } catch (err) {
+
+    console.error(err);
+    res.send("Error fetching reviews");
 
   }
 
