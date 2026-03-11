@@ -1,59 +1,47 @@
-require("dotenv").config();
 const express = require("express");
 const fetch = require("node-fetch");
 const fs = require("fs");
+require("dotenv").config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const port = process.env.PORT || 10000;
 
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI;
 
-const HUB_ID = "b.feca1f7d-8b4f-4f6d-9414-2e529b1e28d4";
-const PROJECT_ID = "4c44226f-6e83-49af-90c1-38bc05804535";
-
 const TOKEN_FILE = "token.json";
 
-/* -------------------------
-   Load refresh token
---------------------------*/
-function loadRefreshToken() {
-  if (fs.existsSync(TOKEN_FILE)) {
-    const data = JSON.parse(fs.readFileSync(TOKEN_FILE));
-    return data.refresh_token;
-  }
-  return null;
-}
+/* HOME */
+app.get("/", (req, res) => {
+  res.send("APS backend running");
+});
 
-/* -------------------------
-   Save refresh token
---------------------------*/
-function saveRefreshToken(token) {
-  fs.writeFileSync(TOKEN_FILE, JSON.stringify({ refresh_token: token }));
-}
+/* LOGIN */
+app.get("/login", (req, res) => {
+  const authUrl =
+    "https://developer.api.autodesk.com/authentication/v2/authorize" +
+    "?response_type=code" +
+    `&client_id=${CLIENT_ID}` +
+    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+    "&scope=data:read account:read";
 
-let refreshToken = loadRefreshToken();
+  res.redirect(authUrl);
+});
 
-/* -------------------------
-   Get Access Token
---------------------------*/
-async function getAccessToken() {
-
-  if (!refreshToken) {
-    throw new Error("Login required");
-  }
+/* CALLBACK */
+app.get("/callback", async (req, res) => {
+  const code = req.query.code;
 
   const response = await fetch(
     "https://developer.api.autodesk.com/authentication/v2/token",
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: refreshToken,
+        grant_type: "authorization_code",
+        code: code,
+        redirect_uri: REDIRECT_URI,
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET
       })
@@ -62,171 +50,89 @@ async function getAccessToken() {
 
   const data = await response.json();
 
-  if (data.refresh_token) {
-    refreshToken = data.refresh_token;
-    saveRefreshToken(refreshToken);
+  fs.writeFileSync(TOKEN_FILE, JSON.stringify(data));
+  console.log("Refresh token saved");
+
+  res.send("Login successful");
+});
+
+/* REFRESH TOKEN */
+async function getAccessToken() {
+  if (!fs.existsSync(TOKEN_FILE)) {
+    throw new Error("Login required");
   }
 
-  return data.access_token;
+  const tokenData = JSON.parse(fs.readFileSync(TOKEN_FILE));
+
+  const response = await fetch(
+    "https://developer.api.autodesk.com/authentication/v2/token",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: tokenData.refresh_token,
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET
+      })
+    }
+  );
+
+  const newToken = await response.json();
+
+  newToken.refresh_token =
+    newToken.refresh_token || tokenData.refresh_token;
+
+  fs.writeFileSync(TOKEN_FILE, JSON.stringify(newToken));
+
+  return newToken.access_token;
 }
 
-/* -------------------------
-   LOGIN
---------------------------*/
-app.get("/", (req, res) => {
-
-  const authUrl =
-    "https://developer.api.autodesk.com/authentication/v2/authorize" +
-    "?response_type=code" +
-    "&client_id=" + CLIENT_ID +
-    "&redirect_uri=" + encodeURIComponent(REDIRECT_URI) +
-    "&scope=data:read%20data:write%20account:read";
-
-  res.send(`
-    <h2>Autodesk Login</h2>
-    <a href="${authUrl}">Login to Autodesk</a>
-  `);
-
-});
-
-/* -------------------------
-   CALLBACK
---------------------------*/
-app.get("/api/callback", async (req, res) => {
-
+/* MAIN DATA ENDPOINT FOR POWER BI */
+app.get("/data", async (req, res) => {
   try {
+    const accessToken = await getAccessToken();
 
-    const code = req.query.code;
-
-    const response = await fetch(
-      "https://developer.api.autodesk.com/authentication/v2/token",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          code: code,
-          client_id: CLIENT_ID,
-          client_secret: CLIENT_SECRET,
-          redirect_uri: REDIRECT_URI
-        })
-      }
-    );
-
-    const data = await response.json();
-
-    refreshToken = data.refresh_token;
-    saveRefreshToken(refreshToken);
-
-    res.send("Login successful. Token saved.");
-
-  } catch (err) {
-
-    console.error(err);
-    res.send("OAuth error");
-
-  }
-
-});
-
-/* -------------------------
-   HUBS
---------------------------*/
-app.get("/hubs", async (req, res) => {
-
-  try {
-
-    const token = await getAccessToken();
-
-    const response = await fetch(
+    /* HUBS */
+    const hubsRes = await fetch(
       "https://developer.api.autodesk.com/project/v1/hubs",
       {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${accessToken}` }
       }
     );
 
-    const data = await response.json();
+    const hubs = await hubsRes.json();
+    const hubId = hubs.data[0].id;
 
-    res.json(data);
-
-  } catch (err) {
-
-    console.error(err);
-    res.send("Error fetching hubs");
-
-  }
-
-});
-
-/* -------------------------
-   PROJECTS
---------------------------*/
-app.get("/projects", async (req, res) => {
-
-  try {
-
-    const token = await getAccessToken();
-
-    const response = await fetch(
-      `https://developer.api.autodesk.com/project/v1/hubs/${HUB_ID}/projects`,
+    /* PROJECTS */
+    const projectsRes = await fetch(
+      `https://developer.api.autodesk.com/project/v1/hubs/${hubId}/projects`,
       {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${accessToken}` }
       }
     );
 
-    const data = await response.json();
+    const projects = await projectsRes.json();
+    const projectId = projects.data[0].id.replace("b.", "");
 
-    res.json(data);
-
-  } catch (err) {
-
-    console.error(err);
-    res.send("Error fetching projects");
-
-  }
-
-});
-
-/* -------------------------
-   REVIEWS
---------------------------*/
-app.get("/reviews", async (req, res) => {
-
-  try {
-
-    const token = await getAccessToken();
-
-    const response = await fetch(
-      `https://developer.api.autodesk.com/construction/reviews/v1/projects/${PROJECT_ID}/reviews`,
+    /* REVIEWS */
+    const reviewsRes = await fetch(
+      `https://developer.api.autodesk.com/construction/review/v1/projects/${projectId}/reviews`,
       {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${accessToken}` }
       }
     );
 
-    const data = await response.json();
+    const reviews = await reviewsRes.json();
 
-    res.json(data);
+    res.json(reviews);
 
   } catch (err) {
-
     console.error(err);
-    res.send("Error fetching reviews");
-
+    res.status(500).send("Error fetching data");
   }
-
 });
 
-/* -------------------------
-   SERVER
---------------------------*/
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+app.listen(port, () => {
+  console.log("Server running on port " + port);
 });
