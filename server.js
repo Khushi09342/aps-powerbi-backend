@@ -33,7 +33,7 @@ function saveRefreshToken(token) {
 let refreshToken = loadRefreshToken();
 
 /* -------------------------
-   Get access token
+   Get Access Token
 --------------------------*/
 async function getAccessToken() {
 
@@ -65,11 +65,13 @@ async function getAccessToken() {
     console.log("Refresh token updated");
   }
 
+  console.log("Access Token:", data.access_token);
+
   return data.access_token;
 }
 
 /* -------------------------
-   Login route
+   Login Route
 --------------------------*/
 app.get("/", (req, res) => {
 
@@ -88,7 +90,7 @@ app.get("/", (req, res) => {
 });
 
 /* -------------------------
-   OAuth callback
+   OAuth Callback
 --------------------------*/
 app.get("/api/callback", async (req, res) => {
 
@@ -115,10 +117,11 @@ app.get("/api/callback", async (req, res) => {
 
     const data = await response.json();
 
-    refreshToken = data.refresh_token;
-    saveRefreshToken(refreshToken);
+    console.log("OAuth response:", data);
 
-    console.log("Refresh token saved");
+    refreshToken = data.refresh_token;
+
+    saveRefreshToken(refreshToken);
 
     res.send("Login successful. Token saved.");
 
@@ -132,7 +135,7 @@ app.get("/api/callback", async (req, res) => {
 });
 
 /* -------------------------
-   Power BI endpoint
+   DATA ENDPOINT
 --------------------------*/
 app.get("/data", async (req, res) => {
 
@@ -149,14 +152,16 @@ app.get("/data", async (req, res) => {
       }
     );
 
-    const data = await response.json();
+    const text = await response.text();
 
-    res.json(data);
+    console.log("Autodesk API response:", text);
+
+    res.send(text);
 
   } catch (err) {
 
-    console.error(err);
-    res.status(500).send("Error fetching hubs");
+    console.error("Server error:", err);
+    res.send("Server error");
 
   }
 
