@@ -24,7 +24,7 @@ app.get("/login", (req, res) => {
     "?response_type=code" +
     `&client_id=${CLIENT_ID}` +
     `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-    "&scope=data:read account:read";
+    "&scope=data:read data:write data:create account:read";
 
   res.redirect(authUrl);
 });
