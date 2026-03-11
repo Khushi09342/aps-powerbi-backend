@@ -4,7 +4,7 @@ const fs = require("fs");
 require("dotenv").config();
 
 const app = express();
-const PORT = process.env.PORT || 10000;
+const port = process.env.PORT || 10000;
 
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
@@ -36,7 +36,7 @@ app.get("/callback", async (req, res) => {
 
   const code = req.query.code;
 
-  const tokenRes = await fetch(
+  const response = await fetch(
     "https://developer.api.autodesk.com/authentication/v2/token",
     {
       method: "POST",
@@ -53,26 +53,21 @@ app.get("/callback", async (req, res) => {
     }
   );
 
-  const tokenData = await tokenRes.json();
+  const data = await response.json();
 
-  fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokenData));
-
-  console.log("Refresh token saved");
+  fs.writeFileSync(TOKEN_FILE, JSON.stringify(data));
 
   res.send("Login successful");
 
 });
 
-/* GET ACCESS TOKEN USING REFRESH TOKEN */
+
+/* REFRESH TOKEN */
 async function getAccessToken() {
 
-  if (!fs.existsSync(TOKEN_FILE)) {
-    throw new Error("Login required");
-  }
+  const tokenData = JSON.parse(fs.readFileSync(TOKEN_FILE));
 
-  const saved = JSON.parse(fs.readFileSync(TOKEN_FILE));
-
-  const tokenRes = await fetch(
+  const response = await fetch(
     "https://developer.api.autodesk.com/authentication/v2/token",
     {
       method: "POST",
@@ -81,17 +76,18 @@ async function getAccessToken() {
       },
       body: new URLSearchParams({
         grant_type: "refresh_token",
-        refresh_token: saved.refresh_token,
+        refresh_token: tokenData.refresh_token,
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET
       })
     }
   );
 
-  const newToken = await tokenRes.json();
+  const newToken = await response.json();
 
-  newToken.refresh_token =
-    newToken.refresh_token || saved.refresh_token;
+  if (!newToken.refresh_token) {
+    newToken.refresh_token = tokenData.refresh_token;
+  }
 
   fs.writeFileSync(TOKEN_FILE, JSON.stringify(newToken));
 
@@ -99,14 +95,15 @@ async function getAccessToken() {
 
 }
 
-/* DATA FOR POWER BI */
+
+/* MAIN DATA API */
 app.get("/data", async (req, res) => {
 
   try {
 
     const accessToken = await getAccessToken();
 
-    /* GET HUBS */
+    /* HUBS */
     const hubsRes = await fetch(
       "https://developer.api.autodesk.com/project/v1/hubs",
       { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -115,16 +112,17 @@ app.get("/data", async (req, res) => {
     const hubs = await hubsRes.json();
     const hubId = hubs.data[0].id;
 
-    /* GET PROJECTS */
-    const projectsRes = await fetch(
+    /* PROJECTS */
+    const projRes = await fetch(
       `https://developer.api.autodesk.com/project/v1/hubs/${hubId}/projects`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
 
-    const projects = await projectsRes.json();
+    const projects = await projRes.json();
+
     const projectId = projects.data[0].id.replace("b.", "");
 
-    /* GET REVIEWS */
+    /* REVIEWS */
     const reviewsRes = await fetch(
       `https://developer.api.autodesk.com/construction/review/v1/projects/${projectId}/reviews`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -132,26 +130,44 @@ app.get("/data", async (req, res) => {
 
     const reviews = await reviewsRes.json();
 
-    const result = reviews.results.map(r => ({
-      id: r.id,
-      name: r.name,
-      status: r.status,
-      createdDate: r.createdAt,
-      fileName: r.document?.name || "No File"
+    /* FORMS */
+    const formsRes = await fetch(
+      `https://developer.api.autodesk.com/construction/forms/v1/projects/${projectId}/forms`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    const forms = await formsRes.json();
+
+    const formattedForms = (forms.results || []).map(f => ({
+      id: f.id,
+      name: f.name,
+      status: f.status,
+      createdAt: f.createdAt,
+      fileName:
+        f.attachments && f.attachments.length > 0
+          ? f.attachments[0].fileName
+          : null
     }));
 
-    res.json(result);
 
-  }
-  catch (err) {
+    res.json({
+      reviews: reviews.results || [],
+      forms: formattedForms
+    });
 
-    console.error(err);
-    res.status(500).send("Error fetching data");
+  } catch (err) {
+
+    console.log(err);
+
+    res.json({
+      error: "backend failed",
+      message: err.message
+    });
 
   }
 
 });
 
-app.listen(PORT, () => {
-  console.log("Server running on port " + PORT);
+app.listen(port, () => {
+  console.log("Server running on port " + port);
 });
