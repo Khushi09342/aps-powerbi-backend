@@ -33,7 +33,7 @@ function saveRefreshToken(token) {
 let refreshToken = loadRefreshToken();
 
 /* -------------------------
-   Generate access token
+   Get access token
 --------------------------*/
 async function getAccessToken() {
 
@@ -62,6 +62,7 @@ async function getAccessToken() {
   if (data.refresh_token) {
     refreshToken = data.refresh_token;
     saveRefreshToken(refreshToken);
+    console.log("Refresh token updated");
   }
 
   return data.access_token;
@@ -79,7 +80,10 @@ app.get("/", (req, res) => {
     "&redirect_uri=" + encodeURIComponent(REDIRECT_URI) +
     "&scope=data:read%20data:write%20account:read";
 
-  res.send(`<h2>Autodesk Login</h2><a href="${authUrl}">Login to Autodesk</a>`);
+  res.send(`
+    <h2>Autodesk Login</h2>
+    <a href="${authUrl}">Login to Autodesk</a>
+  `);
 
 });
 
@@ -112,7 +116,6 @@ app.get("/api/callback", async (req, res) => {
     const data = await response.json();
 
     refreshToken = data.refresh_token;
-
     saveRefreshToken(refreshToken);
 
     console.log("Refresh token saved");
@@ -123,6 +126,37 @@ app.get("/api/callback", async (req, res) => {
 
     console.error(err);
     res.send("OAuth error");
+
+  }
+
+});
+
+/* -------------------------
+   Power BI endpoint
+--------------------------*/
+app.get("/data", async (req, res) => {
+
+  try {
+
+    const token = await getAccessToken();
+
+    const response = await fetch(
+      "https://developer.api.autodesk.com/project/v1/hubs",
+      {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    );
+
+    const data = await response.json();
+
+    res.json(data);
+
+  } catch (err) {
+
+    console.error(err);
+    res.status(500).send("Error fetching hubs");
 
   }
 
