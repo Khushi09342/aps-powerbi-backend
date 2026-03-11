@@ -13,7 +13,7 @@ const REDIRECT_URI = process.env.REDIRECT_URI;
 const TOKEN_FILE = "token.json";
 
 /* -------------------------
-   Load saved refresh token
+   Load refresh token
 --------------------------*/
 function loadRefreshToken() {
   if (fs.existsSync(TOKEN_FILE)) {
@@ -33,7 +33,7 @@ function saveRefreshToken(token) {
 let refreshToken = loadRefreshToken();
 
 /* -------------------------
-   Generate Access Token
+   Generate access token
 --------------------------*/
 async function getAccessToken() {
 
@@ -62,12 +62,10 @@ async function getAccessToken() {
   if (data.refresh_token) {
     refreshToken = data.refresh_token;
     saveRefreshToken(refreshToken);
-    console.log("Updated refresh token:", refreshToken);
   }
 
   return data.access_token;
 }
-
 
 /* -------------------------
    Login route
@@ -82,13 +80,13 @@ app.get("/", (req, res) => {
     "&scope=data:read%20data:write%20account:read";
 
   res.send(`<h2>Autodesk Login</h2><a href="${authUrl}">Login to Autodesk</a>`);
-});
 
+});
 
 /* -------------------------
    OAuth callback
 --------------------------*/
-app.get("/callback", async (req, res) => {
+app.get("/api/callback", async (req, res) => {
 
   try {
 
@@ -114,9 +112,10 @@ app.get("/callback", async (req, res) => {
     const data = await response.json();
 
     refreshToken = data.refresh_token;
+
     saveRefreshToken(refreshToken);
 
-    console.log("New refresh token:", refreshToken);
+    console.log("Refresh token saved");
 
     res.send("Login successful. Token saved.");
 
@@ -129,68 +128,9 @@ app.get("/callback", async (req, res) => {
 
 });
 
-
 /* -------------------------
-   Reviews
+   Start server
 --------------------------*/
-async function getReviews(token, projectId) {
-
-  const response = await fetch(
-    `https://developer.api.autodesk.com/construction/reviews/v1/projects/${projectId}/reviews`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-
-  return await response.json();
-}
-
-
-/* -------------------------
-   Forms
---------------------------*/
-async function getForms(token, projectId) {
-
-  const response = await fetch(
-    `https://developer.api.autodesk.com/construction/forms/v1/projects/${projectId}/forms`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-
-  return await response.json();
-}
-
-
-/* -------------------------
-   Power BI endpoint
---------------------------*/
-app.get("/api/callback", async (req, res) => {
-
-  const code = req.query.code;
-
-  const response = await fetch(
-    "https://developer.api.autodesk.com/authentication/v2/token",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code: code,
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-        redirect_uri: REDIRECT_URI
-      })
-    }
-  );
-
-  const data = await response.json();
-
-  refreshToken = data.refresh_token;
-
-  console.log("NEW REFRESH TOKEN:", refreshToken);
-
-  res.send("Login successful. Token saved.");
-});
-
 app.listen(PORT, () => {
-  console.log(`Server running at port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
