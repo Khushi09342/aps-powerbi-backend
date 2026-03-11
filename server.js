@@ -43,7 +43,7 @@ app.get("/callback", async (req, res) => {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           grant_type: "authorization_code",
-          code: code,
+          code,
           redirect_uri: REDIRECT_URI,
           client_id: CLIENT_ID,
           client_secret: CLIENT_SECRET
@@ -92,6 +92,10 @@ async function getAccessToken() {
 
   const tokenData = await tokenRes.json();
 
+  if (!tokenData.access_token) {
+    throw new Error("Failed to get access token");
+  }
+
   if (tokenData.refresh_token) {
     REFRESH_TOKEN = tokenData.refresh_token;
   }
@@ -114,9 +118,17 @@ app.get("/data", async (req, res) => {
 
     const hubs = await hubsRes.json();
 
+    if (!hubs.data || hubs.data.length === 0) {
+      return res.json({ reviews: [], forms: [] });
+    }
+
     const hub = hubs.data.find(
-      h => h.attributes.extension.type === "hubs:autodesk.bim360:Account"
+      h => h.attributes?.extension?.type === "hubs:autodesk.bim360:Account"
     );
+
+    if (!hub) {
+      return res.json({ reviews: [], forms: [] });
+    }
 
     const hubId = hub.id;
 
@@ -127,6 +139,10 @@ app.get("/data", async (req, res) => {
     );
 
     const projects = await projRes.json();
+
+    if (!projects.data || projects.data.length === 0) {
+      return res.json({ reviews: [], forms: [] });
+    }
 
     const projectId = projects.data[0].id.replace("b.", "");
 
@@ -157,8 +173,8 @@ app.get("/data", async (req, res) => {
     }));
 
     res.json({
-      reviews: reviews,
-      forms: forms
+      reviews,
+      forms
     });
 
   } catch (err) {
