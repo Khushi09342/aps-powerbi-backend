@@ -1,6 +1,5 @@
 const express = require("express");
 const fetch = require("node-fetch");
-const fs = require("fs");
 require("dotenv").config();
 
 const app = express();
@@ -9,8 +8,6 @@ const PORT = process.env.PORT || 10000;
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI;
-
-const TOKEN_FILE = "token.json";
 
 /* HOME */
 app.get("/", (req, res) => {
@@ -51,7 +48,7 @@ app.get("/callback", async (req, res) => {
 
     const tokenData = await tokenRes.json();
 
-    fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokenData));
+    REFRESH_TOKEN = tokenData.refresh_token;
 
     console.log("Refresh token saved");
 
@@ -64,13 +61,13 @@ app.get("/callback", async (req, res) => {
 });
 
 /* REFRESH ACCESS TOKEN */
+let REFRESH_TOKEN = process.env.REFRESH_TOKEN;
+
 async function getAccessToken() {
 
-  if (!fs.existsSync(TOKEN_FILE)) {
-    throw new Error("Login required");
+  if (!REFRESH_TOKEN) {
+    throw new Error("REFRESH_TOKEN missing in environment");
   }
-
-  const saved = JSON.parse(fs.readFileSync(TOKEN_FILE));
 
   const tokenRes = await fetch(
     "https://developer.api.autodesk.com/authentication/v2/token",
