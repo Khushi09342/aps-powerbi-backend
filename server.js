@@ -4,7 +4,7 @@ const fs = require("fs");
 require("dotenv").config();
 
 const app = express();
-const port = process.env.PORT || 10000;
+const PORT = process.env.PORT || 10000;
 
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
@@ -19,7 +19,6 @@ app.get("/", (req, res) => {
 
 /* LOGIN */
 app.get("/login", (req, res) => {
-
   const url =
     "https://developer.api.autodesk.com/authentication/v2/authorize" +
     "?response_type=code" +
@@ -28,75 +27,77 @@ app.get("/login", (req, res) => {
     "&scope=data:read account:read";
 
   res.redirect(url);
-
 });
 
 /* CALLBACK */
 app.get("/callback", async (req, res) => {
+  try {
+    const code = req.query.code;
 
-  const code = req.query.code;
+    const tokenRes = await fetch(
+      "https://developer.api.autodesk.com/authentication/v2/token",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: code,
+          redirect_uri: REDIRECT_URI,
+          client_id: CLIENT_ID,
+          client_secret: CLIENT_SECRET
+        })
+      }
+    );
 
-  const response = await fetch(
-    "https://developer.api.autodesk.com/authentication/v2/token",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code: code,
-        redirect_uri: REDIRECT_URI,
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET
-      })
-    }
-  );
+    const tokenData = await tokenRes.json();
 
-  const data = await response.json();
+    fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokenData));
 
-  fs.writeFileSync(TOKEN_FILE, JSON.stringify(data));
+    console.log("Refresh token saved");
 
-  res.send("Login successful");
+    res.send("Login successful");
 
+  } catch (err) {
+    console.log(err);
+    res.send("Login failed");
+  }
 });
 
-
-/* REFRESH TOKEN */
+/* REFRESH ACCESS TOKEN */
 async function getAccessToken() {
 
-  const tokenData = JSON.parse(fs.readFileSync(TOKEN_FILE));
+  if (!fs.existsSync(TOKEN_FILE)) {
+    throw new Error("Login required");
+  }
 
-  const response = await fetch(
+  const saved = JSON.parse(fs.readFileSync(TOKEN_FILE));
+
+  const tokenRes = await fetch(
     "https://developer.api.autodesk.com/authentication/v2/token",
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         grant_type: "refresh_token",
-        refresh_token: tokenData.refresh_token,
+        refresh_token: saved.refresh_token,
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET
       })
     }
   );
 
-  const newToken = await response.json();
+  const newToken = await tokenRes.json();
 
   if (!newToken.refresh_token) {
-    newToken.refresh_token = tokenData.refresh_token;
+    newToken.refresh_token = saved.refresh_token;
   }
 
   fs.writeFileSync(TOKEN_FILE, JSON.stringify(newToken));
 
   return newToken.access_token;
-
 }
 
-
-/* MAIN DATA API */
+/* DATA ENDPOINT FOR POWER BI */
 app.get("/data", async (req, res) => {
 
   try {
@@ -110,6 +111,11 @@ app.get("/data", async (req, res) => {
     );
 
     const hubs = await hubsRes.json();
+
+    if (!hubs.data || hubs.data.length === 0) {
+      return res.json({ error: "No hubs found" });
+    }
+
     const hubId = hubs.data[0].id;
 
     /* PROJECTS */
@@ -119,6 +125,10 @@ app.get("/data", async (req, res) => {
     );
 
     const projects = await projRes.json();
+
+    if (!projects.data || projects.data.length === 0) {
+      return res.json({ error: "No projects found" });
+    }
 
     const projectId = projects.data[0].id.replace("b.", "");
 
@@ -130,6 +140,8 @@ app.get("/data", async (req, res) => {
 
     const reviews = await reviewsRes.json();
 
+    const reviewList = reviews.results || reviews.data || [];
+
     /* FORMS */
     const formsRes = await fetch(
       `https://developer.api.autodesk.com/construction/forms/v1/projects/${projectId}/forms`,
@@ -138,7 +150,9 @@ app.get("/data", async (req, res) => {
 
     const forms = await formsRes.json();
 
-    const formattedForms = (forms.results || []).map(f => ({
+    const formArray = forms.data || forms.results || [];
+
+    const formattedForms = formArray.map(f => ({
       id: f.id,
       name: f.name,
       status: f.status,
@@ -146,12 +160,11 @@ app.get("/data", async (req, res) => {
       fileName:
         f.attachments && f.attachments.length > 0
           ? f.attachments[0].fileName
-          : null
+          : "No File"
     }));
 
-
     res.json({
-      reviews: reviews.results || [],
+      reviews: reviewList,
       forms: formattedForms
     });
 
@@ -160,14 +173,13 @@ app.get("/data", async (req, res) => {
     console.log(err);
 
     res.json({
-      error: "backend failed",
+      error: "backend error",
       message: err.message
     });
 
   }
-
 });
 
-app.listen(port, () => {
-  console.log("Server running on port " + port);
+app.listen(PORT, () => {
+  console.log("Server running on port " + PORT);
 });
