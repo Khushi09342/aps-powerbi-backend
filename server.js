@@ -12,6 +12,7 @@ const REDIRECT_URI = process.env.REDIRECT_URI;
 
 let REFRESH_TOKEN;
 
+/* LOAD REFRESH TOKEN */
 if (fs.existsSync("refresh_token.txt")) {
   REFRESH_TOKEN = fs.readFileSync("refresh_token.txt", "utf8");
 } else {
@@ -76,7 +77,7 @@ app.get("/callback", async (req, res) => {
 
 });
 
-/* ACCESS TOKEN */
+/* GET ACCESS TOKEN */
 async function getAccessToken() {
 
   if (!REFRESH_TOKEN) {
@@ -122,7 +123,11 @@ app.get("/data", async (req, res) => {
     /* HUBS */
     const hubsRes = await fetch(
       "https://developer.api.autodesk.com/project/v1/hubs",
-      { headers: { Authorization: `Bearer ${accessToken}` } }
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      }
     );
 
     const hubs = await hubsRes.json();
@@ -140,7 +145,11 @@ app.get("/data", async (req, res) => {
     /* PROJECTS */
     const projRes = await fetch(
       `https://developer.api.autodesk.com/project/v1/hubs/${hubId}/projects`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      }
     );
 
     const projects = await projRes.json();
@@ -159,46 +168,55 @@ app.get("/data", async (req, res) => {
 
       const projectName = project.attributes.name;
 
-      const containerId =
-        project.relationships?.issues?.data?.id ||
-        project.relationships?.rfis?.data?.id;
+      const projectId = project.id.replace("b.", "");
 
-      if (!containerId) continue;
+      /* ======================= */
+      /* DOCS REVIEWS API */
+      /* ======================= */
 
-      console.log("Container:", containerId);
-
-      /* REVIEWS */
       const reviewsRes = await fetch(
-        `https://developer.api.autodesk.com/construction/workflow/v1/containers/${containerId}/reviews`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
+        `https://developer.api.autodesk.com/docs/reviews/v1/projects/${projectId}/reviews`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`
+          }
+        }
       );
 
       const reviewsData = await reviewsRes.json();
 
-      console.log("REVIEWS RAW RESPONSE:", JSON.stringify(reviewsData, null, 2));
+      console.log("REVIEWS RESPONSE:", JSON.stringify(reviewsData, null, 2));
 
-      if (reviewsData.results) {
+      if (reviewsData.data) {
 
-        const reviews = reviewsData.results.map(r => ({
+        const reviews = reviewsData.data.map(r => ({
           id: r.id,
-          name: r.name,
-          status: r.status,
-          createdAt: r.createdAt,
+          name: r.attributes?.name,
+          status: r.attributes?.status,
+          createdAt: r.attributes?.createdAt,
           project: projectName
         }));
 
         allReviews = allReviews.concat(reviews);
+
       }
 
-      /* FORMS */
+      /* ======================= */
+      /* FORMS API */
+      /* ======================= */
+
       const formsRes = await fetch(
-        `https://developer.api.autodesk.com/construction/forms/v1/containers/${containerId}/forms`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
+        `https://developer.api.autodesk.com/construction/forms/v1/projects/${projectId}/forms`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`
+          }
+        }
       );
 
       const formsData = await formsRes.json();
 
-      console.log("FORMS RAW RESPONSE:", JSON.stringify(formsData, null, 2));
+      console.log("FORMS RESPONSE:", JSON.stringify(formsData, null, 2));
 
       if (formsData.results) {
 
@@ -212,6 +230,7 @@ app.get("/data", async (req, res) => {
         }));
 
         allForms = allForms.concat(forms);
+
       }
 
     }
