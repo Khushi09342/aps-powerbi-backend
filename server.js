@@ -146,6 +146,11 @@ app.get("/data", async (req, res) => {
 
     const projects = await projRes.json();
 
+    console.log("PROJECT LIST:", JSON.stringify(projects.data.map(p => ({
+  name: p.attributes.name,
+  id: p.id
+})), null, 2));
+
     let allReviews = [];
     let allForms = [];
 
