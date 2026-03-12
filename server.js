@@ -161,25 +161,21 @@ app.get("/data", async (req, res) => {
 
       /* DOCS REVIEWS */
       const reviewsRes = await fetch(
-        `https://developer.api.autodesk.com/docs/reviews/v1/projects/${projectId}/reviews`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
+  `https://developer.api.autodesk.com/construction/workflows/v1/projects/${projectId}/reviews`,
+  { headers: { Authorization: `Bearer ${accessToken}` } }
+);
 
-      const reviewsData = await reviewsRes.json();
+const reviewsData = await reviewsRes.json();
 
-      if (reviewsData.data) {
+const reviews = (reviewsData.results || []).map(r => ({
+  id: r.id,
+  name: r.name,
+  status: r.status,
+  createdAt: r.createdAt,
+  project: projectName
+}));
 
-        const reviews = reviewsData.data.map(r => ({
-          id: r.id,
-          name: r.attributes?.name,
-          status: r.attributes?.status,
-          createdAt: r.attributes?.createdAt,
-          project: projectName
-        }));
-
-        allReviews = allReviews.concat(reviews);
-      }
-
+allReviews = allReviews.concat(reviews);
       /* FORMS */
       const formsRes = await fetch(
         `https://developer.api.autodesk.com/construction/forms/v1/projects/${projectId}/forms`,
