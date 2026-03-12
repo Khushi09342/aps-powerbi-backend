@@ -26,6 +26,7 @@ app.get("/", (req, res) => {
 
 /* LOGIN */
 app.get("/login", (req, res) => {
+
   const url =
     "https://developer.api.autodesk.com/authentication/v2/authorize" +
     "?response_type=code" +
@@ -34,10 +35,12 @@ app.get("/login", (req, res) => {
     "&scope=data:read account:read";
 
   res.redirect(url);
+
 });
 
 /* CALLBACK */
 app.get("/callback", async (req, res) => {
+
   try {
 
     const code = req.query.code;
@@ -61,15 +64,17 @@ app.get("/callback", async (req, res) => {
 
     REFRESH_TOKEN = tokenData.refresh_token;
 
-    /* SAVE REFRESH TOKEN */
     fs.writeFileSync("refresh_token.txt", REFRESH_TOKEN);
 
     res.send("Login successful. Refresh token saved.");
 
   } catch (err) {
+
     console.log(err);
     res.send("Login failed");
+
   }
+
 });
 
 /* GET ACCESS TOKEN */
@@ -99,13 +104,13 @@ async function getAccessToken() {
     throw new Error("Failed to get access token");
   }
 
-  /* SAVE ROTATED REFRESH TOKEN */
   if (tokenData.refresh_token) {
     REFRESH_TOKEN = tokenData.refresh_token;
     fs.writeFileSync("refresh_token.txt", REFRESH_TOKEN);
   }
 
   return tokenData.access_token;
+
 }
 
 /* DATA ENDPOINT */
@@ -127,7 +132,9 @@ app.get("/data", async (req, res) => {
       h => h.attributes?.extension?.type === "hubs:autodesk.bim360:Account"
     );
 
-    if (!hub) return res.json({ reviews: [], forms: [] });
+    if (!hub) {
+      return res.json({ reviews: [], forms: [] });
+    }
 
     const hubId = hub.id;
 
@@ -139,42 +146,61 @@ app.get("/data", async (req, res) => {
 
     const projects = await projRes.json();
 
-    const project = projects.data.find(p =>
-      p.attributes.name.includes("Seaport")
-    );
+    let allReviews = [];
+    let allForms = [];
 
-    if (!project) return res.json({ reviews: [], forms: [] });
+    for (const project of projects.data) {
 
-    const projectId = project.id.replace("b.", "");
+      const projectId = project.id.replace("b.", "");
 
-    /* REVIEWS */
-    const reviewsRes = await fetch(
-      `https://developer.api.autodesk.com/construction/review/v1/projects/${projectId}/reviews`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
+      /* REVIEWS */
+      const reviewsRes = await fetch(
+        `https://developer.api.autodesk.com/construction/review/v1/projects/${projectId}/reviews`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
 
-    const reviewsData = await reviewsRes.json();
-    const reviews = reviewsData.results || [];
+      const reviewsData = await reviewsRes.json();
 
-    /* FORMS */
-    const formsRes = await fetch(
-      `https://developer.api.autodesk.com/construction/forms/v1/projects/${projectId}/forms`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
+      if (reviewsData.results) {
 
-    const formsData = await formsRes.json();
+        const reviews = reviewsData.results.map(r => ({
+          id: r.id,
+          name: r.name,
+          status: r.status,
+          createdAt: r.createdAt,
+          project: project.attributes.name
+        }));
 
-    const forms = (formsData.results || []).map(f => ({
-      id: f.id,
-      name: f.name,
-      status: f.status,
-      createdAt: f.createdAt,
-      fileName: f.attachments?.[0]?.fileName || "No File"
-    }));
+        allReviews = allReviews.concat(reviews);
+      }
+
+      /* FORMS */
+      const formsRes = await fetch(
+        `https://developer.api.autodesk.com/construction/forms/v1/projects/${projectId}/forms`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+
+      const formsData = await formsRes.json();
+
+      if (formsData.results) {
+
+        const forms = formsData.results.map(f => ({
+          id: f.id,
+          name: f.name,
+          status: f.status,
+          createdAt: f.createdAt,
+          fileName: f.attachments?.[0]?.fileName || "No File",
+          project: project.attributes.name
+        }));
+
+        allForms = allForms.concat(forms);
+      }
+
+    }
 
     res.json({
-      reviews,
-      forms
+      reviews: allReviews,
+      forms: allForms
     });
 
   } catch (err) {
