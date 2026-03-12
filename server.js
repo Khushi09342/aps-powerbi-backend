@@ -1,5 +1,6 @@
 const express = require("express");
 const fetch = require("node-fetch");
+const fs = require("fs");
 require("dotenv").config();
 
 const app = express();
@@ -9,7 +10,14 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI;
 
-let REFRESH_TOKEN = process.env.REFRESH_TOKEN;
+/* LOAD REFRESH TOKEN */
+let REFRESH_TOKEN;
+
+if (fs.existsSync("refresh_token.txt")) {
+  REFRESH_TOKEN = fs.readFileSync("refresh_token.txt", "utf8");
+} else {
+  REFRESH_TOKEN = process.env.REFRESH_TOKEN;
+}
 
 /* HOME */
 app.get("/", (req, res) => {
@@ -18,7 +26,6 @@ app.get("/", (req, res) => {
 
 /* LOGIN */
 app.get("/login", (req, res) => {
-
   const url =
     "https://developer.api.autodesk.com/authentication/v2/authorize" +
     "?response_type=code" +
@@ -31,7 +38,6 @@ app.get("/login", (req, res) => {
 
 /* CALLBACK */
 app.get("/callback", async (req, res) => {
-
   try {
 
     const code = req.query.code;
@@ -55,25 +61,22 @@ app.get("/callback", async (req, res) => {
 
     REFRESH_TOKEN = tokenData.refresh_token;
 
-    res.send(
-      "Login successful. Copy this refresh token and save it in Render ENV:<br><br>" +
-      tokenData.refresh_token
-    );
+    /* SAVE REFRESH TOKEN */
+    fs.writeFileSync("refresh_token.txt", REFRESH_TOKEN);
+
+    res.send("Login successful. Refresh token saved.");
 
   } catch (err) {
-
     console.log(err);
     res.send("Login failed");
-
   }
-
 });
 
 /* GET ACCESS TOKEN */
 async function getAccessToken() {
 
   if (!REFRESH_TOKEN) {
-    throw new Error("REFRESH_TOKEN missing in Render ENV");
+    throw new Error("REFRESH_TOKEN missing");
   }
 
   const tokenRes = await fetch(
@@ -96,14 +99,16 @@ async function getAccessToken() {
     throw new Error("Failed to get access token");
   }
 
+  /* SAVE ROTATED REFRESH TOKEN */
   if (tokenData.refresh_token) {
     REFRESH_TOKEN = tokenData.refresh_token;
+    fs.writeFileSync("refresh_token.txt", REFRESH_TOKEN);
   }
 
   return tokenData.access_token;
 }
 
-/* MAIN DATA ENDPOINT */
+/* DATA ENDPOINT */
 app.get("/data", async (req, res) => {
 
   try {
@@ -118,17 +123,11 @@ app.get("/data", async (req, res) => {
 
     const hubs = await hubsRes.json();
 
-    if (!hubs.data || hubs.data.length === 0) {
-      return res.json({ reviews: [], forms: [] });
-    }
-
     const hub = hubs.data.find(
       h => h.attributes?.extension?.type === "hubs:autodesk.bim360:Account"
     );
 
-    if (!hub) {
-      return res.json({ reviews: [], forms: [] });
-    }
+    if (!hub) return res.json({ reviews: [], forms: [] });
 
     const hubId = hub.id;
 
@@ -139,17 +138,15 @@ app.get("/data", async (req, res) => {
     );
 
     const projects = await projRes.json();
-    console.log(JSON.stringify(projects, null, 2));
-
-    if (!projects.data || projects.data.length === 0) {
-      return res.json({ reviews: [], forms: [] });
-    }
 
     const project = projects.data.find(p =>
-  p.attributes.name.includes("Seaport")
-);
+      p.attributes.name.includes("Seaport")
+    );
 
-const projectId = project.id.replace("b.", "");
+    if (!project) return res.json({ reviews: [], forms: [] });
+
+    const projectId = project.id.replace("b.", "");
+
     /* REVIEWS */
     const reviewsRes = await fetch(
       `https://developer.api.autodesk.com/construction/review/v1/projects/${projectId}/reviews`,
@@ -157,7 +154,6 @@ const projectId = project.id.replace("b.", "");
     );
 
     const reviewsData = await reviewsRes.json();
-
     const reviews = reviewsData.results || [];
 
     /* FORMS */
