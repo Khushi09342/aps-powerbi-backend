@@ -10,7 +10,6 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI;
 
-/* LOAD REFRESH TOKEN */
 let REFRESH_TOKEN;
 
 if (fs.existsSync("refresh_token.txt")) {
@@ -77,7 +76,7 @@ app.get("/callback", async (req, res) => {
 
 });
 
-/* GET ACCESS TOKEN */
+/* ACCESS TOKEN */
 async function getAccessToken() {
 
   if (!REFRESH_TOKEN) {
@@ -146,39 +145,52 @@ app.get("/data", async (req, res) => {
 
     const projects = await projRes.json();
 
-    console.log("PROJECT LIST:", JSON.stringify(projects.data.map(p => ({
-      name: p.attributes.name,
-      id: p.id
-    })), null, 2));
+    console.log("PROJECT LIST:",
+      projects.data.map(p => ({
+        name: p.attributes.name,
+        id: p.id
+      }))
+    );
 
     let allReviews = [];
     let allForms = [];
 
     for (const project of projects.data) {
 
-      const projectId = project.id.replace("b.", "");
       const projectName = project.attributes.name;
 
-      /* DOCS REVIEWS */
+      const containerId =
+        project.relationships?.issues?.data?.id ||
+        project.relationships?.rfis?.data?.id;
+
+      if (!containerId) continue;
+
+      console.log("Container:", containerId);
+
+      /* REVIEWS */
       const reviewsRes = await fetch(
-  `https://developer.api.autodesk.com/construction/workflows/v1/projects/${projectId}/reviews`,
-  { headers: { Authorization: `Bearer ${accessToken}` } }
-);
+        `https://developer.api.autodesk.com/construction/review/v1/containers/${containerId}/reviews`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
 
-const reviewsData = await reviewsRes.json();
+      const reviewsData = await reviewsRes.json();
 
-const reviews = (reviewsData.results || []).map(r => ({
-  id: r.id,
-  name: r.name,
-  status: r.status,
-  createdAt: r.createdAt,
-  project: projectName
-}));
+      if (reviewsData.results) {
 
-allReviews = allReviews.concat(reviews);
+        const reviews = reviewsData.results.map(r => ({
+          id: r.id,
+          name: r.name,
+          status: r.status,
+          createdAt: r.createdAt,
+          project: projectName
+        }));
+
+        allReviews = allReviews.concat(reviews);
+      }
+
       /* FORMS */
       const formsRes = await fetch(
-        `https://developer.api.autodesk.com/construction/forms/v1/projects/${projectId}/forms`,
+        `https://developer.api.autodesk.com/construction/forms/v1/containers/${containerId}/forms`,
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
 
