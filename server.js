@@ -124,9 +124,7 @@ app.get("/data", async (req, res) => {
     const hubsRes = await fetch(
       "https://developer.api.autodesk.com/project/v1/hubs",
       {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        }
+        headers: { Authorization: `Bearer ${accessToken}` }
       }
     );
 
@@ -146,9 +144,7 @@ app.get("/data", async (req, res) => {
     const projRes = await fetch(
       `https://developer.api.autodesk.com/project/v1/hubs/${hubId}/projects`,
       {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        }
+        headers: { Authorization: `Bearer ${accessToken}` }
       }
     );
 
@@ -167,19 +163,16 @@ app.get("/data", async (req, res) => {
     for (const project of projects.data) {
 
       const projectName = project.attributes.name;
-
       const projectId = project.id.replace("b.", "");
 
       /* ======================= */
-      /* DOCS REVIEWS API */
+      /* DOCS REVIEW WORKFLOWS */
       /* ======================= */
 
       const reviewsRes = await fetch(
-        `https://developer.api.autodesk.com/docs/reviews/v1/projects/${projectId}/reviews`,
+        `https://developer.api.autodesk.com/docs/reviews/v1/projects/${projectId}/review-workflows`,
         {
-          headers: {
-            Authorization: `Bearer ${accessToken}`
-          }
+          headers: { Authorization: `Bearer ${accessToken}` }
         }
       );
 
@@ -192,7 +185,7 @@ app.get("/data", async (req, res) => {
         const reviews = reviewsData.data.map(r => ({
           id: r.id,
           name: r.attributes?.name,
-          status: r.attributes?.status,
+          status: r.attributes?.state,
           createdAt: r.attributes?.createdAt,
           project: projectName
         }));
@@ -208,9 +201,7 @@ app.get("/data", async (req, res) => {
       const formsRes = await fetch(
         `https://developer.api.autodesk.com/construction/forms/v1/projects/${projectId}/forms`,
         {
-          headers: {
-            Authorization: `Bearer ${accessToken}`
-          }
+          headers: { Authorization: `Bearer ${accessToken}` }
         }
       );
 
