@@ -175,6 +175,8 @@ app.get("/data", async (req, res) => {
 
       const reviewsData = await reviewsRes.json();
 
+      console.log("REVIEWS RAW RESPONSE:", JSON.stringify(reviewsData, null, 2));
+
       if (reviewsData.results) {
 
         const reviews = reviewsData.results.map(r => ({
@@ -195,6 +197,8 @@ app.get("/data", async (req, res) => {
       );
 
       const formsData = await formsRes.json();
+
+      console.log("FORMS RAW RESPONSE:", JSON.stringify(formsData, null, 2));
 
       if (formsData.results) {
 
