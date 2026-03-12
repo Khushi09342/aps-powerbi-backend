@@ -32,7 +32,7 @@ app.get("/login", (req, res) => {
     "?response_type=code" +
     `&client_id=${CLIENT_ID}` +
     `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-    "&scope=data:read account:read";
+    "&scope=data:read account:read account:write data:create data:write";
 
   res.redirect(url);
 
