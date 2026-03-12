@@ -169,7 +169,7 @@ app.get("/data", async (req, res) => {
 
       /* REVIEWS */
       const reviewsRes = await fetch(
-        `https://developer.api.autodesk.com/construction/review/v1/containers/${containerId}/reviews`,
+        `https://developer.api.autodesk.com/construction/workflow/v1/containers/${containerId}/reviews`,
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
 
