@@ -26,7 +26,6 @@ app.get("/", (req, res) => {
 
 /* LOGIN */
 app.get("/login", (req, res) => {
-
   const url =
     "https://developer.api.autodesk.com/authentication/v2/authorize" +
     "?response_type=code" +
@@ -35,14 +34,11 @@ app.get("/login", (req, res) => {
     "&scope=data:read account:read account:write data:create data:write";
 
   res.redirect(url);
-
 });
 
 /* CALLBACK */
 app.get("/callback", async (req, res) => {
-
   try {
-
     const code = req.query.code;
 
     const tokenRes = await fetch(
@@ -63,26 +59,19 @@ app.get("/callback", async (req, res) => {
     const tokenData = await tokenRes.json();
 
     REFRESH_TOKEN = tokenData.refresh_token;
-
     fs.writeFileSync("refresh_token.txt", REFRESH_TOKEN);
 
     res.send("Login successful. Refresh token saved.");
 
   } catch (err) {
-
     console.log(err);
     res.send("Login failed");
-
   }
-
 });
 
 /* GET ACCESS TOKEN */
 async function getAccessToken() {
-
-  if (!REFRESH_TOKEN) {
-    throw new Error("REFRESH_TOKEN missing");
-  }
+  if (!REFRESH_TOKEN) throw new Error("REFRESH_TOKEN missing");
 
   const tokenRes = await fetch(
     "https://developer.api.autodesk.com/authentication/v2/token",
@@ -101,6 +90,7 @@ async function getAccessToken() {
   const tokenData = await tokenRes.json();
 
   if (!tokenData.access_token) {
+    console.log(tokenData);
     throw new Error("Failed to get access token");
   }
 
@@ -110,22 +100,17 @@ async function getAccessToken() {
   }
 
   return tokenData.access_token;
-
 }
 
 /* DATA ENDPOINT */
 app.get("/data", async (req, res) => {
-
   try {
-
     const accessToken = await getAccessToken();
 
     /* HUBS */
     const hubsRes = await fetch(
       "https://developer.api.autodesk.com/project/v1/hubs",
-      {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      }
+      { headers: { Authorization: `Bearer ${accessToken}` } }
     );
 
     const hubs = await hubsRes.json();
@@ -134,23 +119,20 @@ app.get("/data", async (req, res) => {
       h => h.attributes?.extension?.type === "hubs:autodesk.bim360:Account"
     );
 
-    if (!hub) {
-      return res.json({ reviews: [], forms: [] });
-    }
+    if (!hub) return res.json({ reviews: [], forms: [] });
 
     const hubId = hub.id;
 
     /* PROJECTS */
     const projRes = await fetch(
       `https://developer.api.autodesk.com/project/v1/hubs/${hubId}/projects`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      }
+      { headers: { Authorization: `Bearer ${accessToken}` } }
     );
 
     const projects = await projRes.json();
 
-    console.log("PROJECT LIST:",
+    console.log(
+      "PROJECT LIST:",
       projects.data.map(p => ({
         name: p.attributes.name,
         id: p.id
@@ -163,25 +145,20 @@ app.get("/data", async (req, res) => {
     for (const project of projects.data) {
 
       const projectName = project.attributes.name;
-      const projectId = project.id.replace("b.", "");
 
-      /* ======================= */
+      // KEEP full BIM360 id (with b.)
+      const projectId = project.id;
+
       /* DOCS REVIEW WORKFLOWS */
-      /* ======================= */
-
       const reviewsRes = await fetch(
         `https://developer.api.autodesk.com/docs/reviews/v1/projects/${projectId}/review-workflows`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        }
+        { headers: { Authorization: `Bearer ${accessToken}` } }
       );
 
       const reviewsData = await reviewsRes.json();
-
-      console.log("REVIEWS RESPONSE:", JSON.stringify(reviewsData, null, 2));
+      console.log("REVIEWS RAW:", JSON.stringify(reviewsData, null, 2));
 
       if (reviewsData.data) {
-
         const reviews = reviewsData.data.map(r => ({
           id: r.id,
           name: r.attributes?.name,
@@ -189,28 +166,19 @@ app.get("/data", async (req, res) => {
           createdAt: r.attributes?.createdAt,
           project: projectName
         }));
-
         allReviews = allReviews.concat(reviews);
-
       }
 
-      /* ======================= */
       /* FORMS API */
-      /* ======================= */
-
       const formsRes = await fetch(
-        `https://developer.api.autodesk.com/construction/forms/v1/projects/${projectId}/forms`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        }
+        `https://developer.api.autodesk.com/construction/forms/v1/projects/${projectId}/forms?limit=200&include=attachments`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
       );
 
       const formsData = await formsRes.json();
-
-      console.log("FORMS RESPONSE:", JSON.stringify(formsData, null, 2));
+      console.log("FORMS RAW:", JSON.stringify(formsData, null, 2));
 
       if (formsData.results) {
-
         const forms = formsData.results.map(f => ({
           id: f.id,
           name: f.name,
@@ -219,11 +187,8 @@ app.get("/data", async (req, res) => {
           fileName: f.attachments?.[0]?.fileName || "No File",
           project: projectName
         }));
-
         allForms = allForms.concat(forms);
-
       }
-
     }
 
     res.json({
@@ -232,16 +197,12 @@ app.get("/data", async (req, res) => {
     });
 
   } catch (err) {
-
     console.log(err);
-
     res.json({
       error: "backend error",
       message: err.message
     });
-
   }
-
 });
 
 app.listen(PORT, () => {
