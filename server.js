@@ -139,6 +139,7 @@ app.get("/data", async (req, res) => {
     );
 
     const projects = await projRes.json();
+    console.log(JSON.stringify(projects, null, 2));
 
     if (!projects.data || projects.data.length === 0) {
       return res.json({ reviews: [], forms: [] });
