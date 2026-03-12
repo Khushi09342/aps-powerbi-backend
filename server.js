@@ -147,9 +147,9 @@ app.get("/data", async (req, res) => {
     const projects = await projRes.json();
 
     console.log("PROJECT LIST:", JSON.stringify(projects.data.map(p => ({
-  name: p.attributes.name,
-  id: p.id
-})), null, 2));
+      name: p.attributes.name,
+      id: p.id
+    })), null, 2));
 
     let allReviews = [];
     let allForms = [];
@@ -157,23 +157,24 @@ app.get("/data", async (req, res) => {
     for (const project of projects.data) {
 
       const projectId = project.id.replace("b.", "");
+      const projectName = project.attributes.name;
 
-      /* REVIEWS */
+      /* DOCS REVIEWS */
       const reviewsRes = await fetch(
-        `https://developer.api.autodesk.com/construction/review/v1/projects/${projectId}/reviews`,
+        `https://developer.api.autodesk.com/docs/reviews/v1/projects/${projectId}/reviews`,
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
 
       const reviewsData = await reviewsRes.json();
 
-      if (reviewsData.results) {
+      if (reviewsData.data) {
 
-        const reviews = reviewsData.results.map(r => ({
+        const reviews = reviewsData.data.map(r => ({
           id: r.id,
-          name: r.name,
-          status: r.status,
-          createdAt: r.createdAt,
-          project: project.attributes.name
+          name: r.attributes?.name,
+          status: r.attributes?.status,
+          createdAt: r.attributes?.createdAt,
+          project: projectName
         }));
 
         allReviews = allReviews.concat(reviews);
@@ -195,7 +196,7 @@ app.get("/data", async (req, res) => {
           status: f.status,
           createdAt: f.createdAt,
           fileName: f.attachments?.[0]?.fileName || "No File",
-          project: project.attributes.name
+          project: projectName
         }));
 
         allForms = allForms.concat(forms);
