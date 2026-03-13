@@ -12,7 +12,6 @@ const REDIRECT_URI = process.env.REDIRECT_URI;
 
 let REFRESH_TOKEN;
 
-// Load token from file for persistence
 if (fs.existsSync("refresh_token.txt")) {
     REFRESH_TOKEN = fs.readFileSync("refresh_token.txt", "utf8");
 } else {
@@ -21,7 +20,7 @@ if (fs.existsSync("refresh_token.txt")) {
 
 app.get("/", (req, res) => res.send("APS backend running. Use /login to authenticate."));
 
-// 1. LOGIN
+// 1. LOGIN (With expanded scopes for Build/Forms)
 app.get("/login", (req, res) => {
     const url = "https://developer.api.autodesk.com/authentication/v2/authorize" +
         "?response_type=code" +
@@ -50,14 +49,12 @@ app.get("/callback", async (req, res) => {
         const data = await response.json();
         REFRESH_TOKEN = data.refresh_token;
         fs.writeFileSync("refresh_token.txt", REFRESH_TOKEN);
-
-        res.send("✅ Login Successful! You can now close this and check Power BI.");
+        res.send("✅ Login Successful! Re-authentication complete.");
     } catch (err) {
         res.status(500).send("Login Error: " + err.message);
     }
 });
 
-// Helper: Get Fresh Access Token
 async function getAccessToken() {
     const response = await fetch("https://developer.api.autodesk.com/authentication/v2/token", {
         method: "POST",
@@ -83,14 +80,12 @@ app.get("/data", async (req, res) => {
         const token = await getAccessToken();
         const headers = { Authorization: `Bearer ${token}` };
 
-        // Get Hubs
         const hubsRes = await fetch("https://developer.api.autodesk.com/project/v1/hubs", { headers });
         const hubs = await hubsRes.json();
         const hub = hubs.data?.find(h => h.attributes?.extension?.type === "hubs:autodesk.bim360:Account");
 
         if (!hub) return res.json({ error: "No BIM360 account found" });
 
-        // Get Projects
         const projRes = await fetch(`https://developer.api.autodesk.com/project/v1/hubs/${hub.id}/projects`, { headers });
         const projects = await projRes.json();
 
@@ -99,10 +94,10 @@ app.get("/data", async (req, res) => {
 
         for (const p of projects.data) {
             const pName = p.attributes.name;
-            const fullId = p.id; // With b.
-            const cleanId = p.id.replace("b.", ""); // Without b.
+            const fullId = p.id; 
+            const cleanId = p.id.replace("b.", ""); 
 
-            // Fetch Reviews
+            // FETCH REVIEWS
             const rRes = await fetch(`https://developer.api.autodesk.com/construction/reviews/v1/projects/${fullId}/reviews`, { headers });
             const rData = await rRes.json();
             if (rData.results) {
@@ -113,22 +108,23 @@ app.get("/data", async (req, res) => {
                     createdAt: rev.createdAt,
                     project: pName,
                     type: "Review",
-                    fileName: rev.reviewWorkflowName || "N/A" 
+                    fileName: rev.name // Fixed N/A issue: using the review name as the file reference
                 })));
             }
 
-            // Fetch Forms
+            // FETCH FORMS
             const fRes = await fetch(`https://developer.api.autodesk.com/construction/forms/v1/projects/${cleanId}/forms`, { headers });
             const fData = await fRes.json();
+            
             if (fData.results) {
                 allForms = allForms.concat(fData.results.map(form => ({
                     id: form.id,
-                    name: form.title || form.templateName,
+                    name: form.title || "(No Title)",
                     status: form.status,
                     createdAt: form.createdAt,
                     project: pName,
                     type: "Form",
-                    fileName: form.locationName || "No Location"
+                    fileName: form.templateName || "Form Template"
                 })));
             }
         }
