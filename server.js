@@ -12,30 +12,30 @@ const REDIRECT_URI = process.env.REDIRECT_URI;
 
 let REFRESH_TOKEN;
 
-/* LOAD REFRESH TOKEN FROM PERSISTENT STORAGE */
+// Load token from file for persistence
 if (fs.existsSync("refresh_token.txt")) {
     REFRESH_TOKEN = fs.readFileSync("refresh_token.txt", "utf8");
 } else {
     REFRESH_TOKEN = process.env.REFRESH_TOKEN;
 }
 
-app.get("/", (req, res) => res.send("APS backend running"));
+app.get("/", (req, res) => res.send("APS backend running. Use /login to authenticate."));
 
-/* LOGIN - Redirects to Autodesk */
+// 1. LOGIN
 app.get("/login", (req, res) => {
     const url = "https://developer.api.autodesk.com/authentication/v2/authorize" +
         "?response_type=code" +
         `&client_id=${CLIENT_ID}` +
         `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-        "&scope=data:read account:read account:write data:create data:write";
+        "&scope=data:read account:read data:create data:write";
     res.redirect(url);
 });
 
-/* CALLBACK - Handles initial token exchange */
+// 2. CALLBACK
 app.get("/callback", async (req, res) => {
     try {
         const code = req.query.code;
-        const tokenRes = await fetch("https://developer.api.autodesk.com/authentication/v2/token", {
+        const response = await fetch("https://developer.api.autodesk.com/authentication/v2/token", {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: new URLSearchParams({
@@ -47,21 +47,19 @@ app.get("/callback", async (req, res) => {
             })
         });
 
-        const tokenData = await tokenRes.json();
-        REFRESH_TOKEN = tokenData.refresh_token;
+        const data = await response.json();
+        REFRESH_TOKEN = data.refresh_token;
         fs.writeFileSync("refresh_token.txt", REFRESH_TOKEN);
 
-        res.send("Login successful. Data endpoint is now ready.");
+        res.send("✅ Login Successful! You can now close this and check Power BI.");
     } catch (err) {
-        res.status(500).send("Login failed: " + err.message);
+        res.status(500).send("Login Error: " + err.message);
     }
 });
 
-/* AUTO-REFRESHING ACCESS TOKEN LOGIC */
+// Helper: Get Fresh Access Token
 async function getAccessToken() {
-    if (!REFRESH_TOKEN) throw new Error("No refresh token available. Run /login first.");
-
-    const tokenRes = await fetch("https://developer.api.autodesk.com/authentication/v2/token", {
+    const response = await fetch("https://developer.api.autodesk.com/authentication/v2/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
@@ -71,66 +69,72 @@ async function getAccessToken() {
             client_secret: CLIENT_SECRET
         })
     });
-
-    const tokenData = await tokenRes.json();
-    if (!tokenData.access_token) throw new Error("Could not refresh token.");
-
-    // Important: Save the NEW refresh token (Autodesk rotates them occasionally)
-    if (tokenData.refresh_token) {
-        REFRESH_TOKEN = tokenData.refresh_token;
+    const data = await response.json();
+    if (data.refresh_token) {
+        REFRESH_TOKEN = data.refresh_token;
         fs.writeFileSync("refresh_token.txt", REFRESH_TOKEN);
     }
-    return tokenData.access_token;
+    return data.access_token;
 }
 
-/* THE DATA FETCHER */
+// 3. DATA FETCHING
 app.get("/data", async (req, res) => {
     try {
-        const accessToken = await getAccessToken();
-        const headers = { Authorization: `Bearer ${accessToken}` };
+        const token = await getAccessToken();
+        const headers = { Authorization: `Bearer ${token}` };
 
-        // 1. Get Hubs (Accounts)
+        // Get Hubs
         const hubsRes = await fetch("https://developer.api.autodesk.com/project/v1/hubs", { headers });
         const hubs = await hubsRes.json();
         const hub = hubs.data?.find(h => h.attributes?.extension?.type === "hubs:autodesk.bim360:Account");
 
-        if (!hub) return res.json({ error: "No BIM360/ACC Account found" });
+        if (!hub) return res.json({ error: "No BIM360 account found" });
 
-        // 2. Get Projects
+        // Get Projects
         const projRes = await fetch(`https://developer.api.autodesk.com/project/v1/hubs/${hub.id}/projects`, { headers });
         const projects = await projRes.json();
 
         let allReviews = [];
         let allForms = [];
 
-        for (const project of projects.data) {
-            const pName = project.attributes.name;
-            const fullProjectId = project.id; // b.xxxx
-            const cleanProjectId = project.id.replace("b.", ""); // xxxx (UUID)
+        for (const p of projects.data) {
+            const pName = p.attributes.name;
+            const fullId = p.id; // With b.
+            const cleanId = p.id.replace("b.", ""); // Without b.
 
-            // --- FETCH REVIEWS (ACC Docs) ---
-            // Use the "construction/reviews" endpoint for actual instances
-            const revRes = await fetch(`https://developer.api.autodesk.com/construction/reviews/v1/projects/${fullProjectId}/reviews`, { headers });
-            const revData = await revRes.json();
-            
-            if (revData.results) {
-                allReviews = allReviews.concat(revData.results.map(r => ({ ...r, projectName: pName })));
+            // Fetch Reviews
+            const rRes = await fetch(`https://developer.api.autodesk.com/construction/reviews/v1/projects/${fullId}/reviews`, { headers });
+            const rData = await rRes.json();
+            if (rData.results) {
+                allReviews = allReviews.concat(rData.results.map(rev => ({
+                    id: rev.id,
+                    name: rev.name,
+                    status: rev.status,
+                    createdAt: rev.createdAt,
+                    project: pName,
+                    type: "Review",
+                    fileName: rev.reviewWorkflowName || "N/A" 
+                })));
             }
 
-            // --- FETCH FORMS (ACC Build) ---
-            // Build API requires the ID without the "b." prefix
-            const formRes = await fetch(`https://developer.api.autodesk.com/construction/forms/v1/projects/${cleanProjectId}/forms`, { headers });
-            const formData = await formRes.json();
-
-            if (formData.results) {
-                allForms = allForms.concat(formData.results.map(f => ({ ...f, projectName: pName })));
+            // Fetch Forms
+            const fRes = await fetch(`https://developer.api.autodesk.com/construction/forms/v1/projects/${cleanId}/forms`, { headers });
+            const fData = await fRes.json();
+            if (fData.results) {
+                allForms = allForms.concat(fData.results.map(form => ({
+                    id: form.id,
+                    name: form.title || form.templateName,
+                    status: form.status,
+                    createdAt: form.createdAt,
+                    project: pName,
+                    type: "Form",
+                    fileName: form.locationName || "No Location"
+                })));
             }
         }
 
         res.json({ reviews: allReviews, forms: allForms });
-
     } catch (err) {
-        console.error(err);
         res.status(500).json({ error: err.message });
     }
 });
