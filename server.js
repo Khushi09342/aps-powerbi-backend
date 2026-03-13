@@ -12,199 +12,127 @@ const REDIRECT_URI = process.env.REDIRECT_URI;
 
 let REFRESH_TOKEN;
 
-/* LOAD REFRESH TOKEN */
+/* LOAD REFRESH TOKEN FROM PERSISTENT STORAGE */
 if (fs.existsSync("refresh_token.txt")) {
-  REFRESH_TOKEN = fs.readFileSync("refresh_token.txt", "utf8");
+    REFRESH_TOKEN = fs.readFileSync("refresh_token.txt", "utf8");
 } else {
-  REFRESH_TOKEN = process.env.REFRESH_TOKEN;
+    REFRESH_TOKEN = process.env.REFRESH_TOKEN;
 }
 
-/* HOME */
-app.get("/", (req, res) => {
-  res.send("APS backend running");
-});
+app.get("/", (req, res) => res.send("APS backend running"));
 
-/* LOGIN */
+/* LOGIN - Redirects to Autodesk */
 app.get("/login", (req, res) => {
-  const url =
-    "https://developer.api.autodesk.com/authentication/v2/authorize" +
-    "?response_type=code" +
-    `&client_id=${CLIENT_ID}` +
-    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-    "&scope=data:read account:read account:write data:create data:write";
-
-  res.redirect(url);
+    const url = "https://developer.api.autodesk.com/authentication/v2/authorize" +
+        "?response_type=code" +
+        `&client_id=${CLIENT_ID}` +
+        `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+        "&scope=data:read account:read account:write data:create data:write";
+    res.redirect(url);
 });
 
-/* CALLBACK */
+/* CALLBACK - Handles initial token exchange */
 app.get("/callback", async (req, res) => {
-  try {
-    const code = req.query.code;
+    try {
+        const code = req.query.code;
+        const tokenRes = await fetch("https://developer.api.autodesk.com/authentication/v2/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+                grant_type: "authorization_code",
+                code,
+                redirect_uri: REDIRECT_URI,
+                client_id: CLIENT_ID,
+                client_secret: CLIENT_SECRET
+            })
+        });
 
-    const tokenRes = await fetch(
-      "https://developer.api.autodesk.com/authentication/v2/token",
-      {
+        const tokenData = await tokenRes.json();
+        REFRESH_TOKEN = tokenData.refresh_token;
+        fs.writeFileSync("refresh_token.txt", REFRESH_TOKEN);
+
+        res.send("Login successful. Data endpoint is now ready.");
+    } catch (err) {
+        res.status(500).send("Login failed: " + err.message);
+    }
+});
+
+/* AUTO-REFRESHING ACCESS TOKEN LOGIC */
+async function getAccessToken() {
+    if (!REFRESH_TOKEN) throw new Error("No refresh token available. Run /login first.");
+
+    const tokenRes = await fetch("https://developer.api.autodesk.com/authentication/v2/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
-          grant_type: "authorization_code",
-          code,
-          redirect_uri: REDIRECT_URI,
-          client_id: CLIENT_ID,
-          client_secret: CLIENT_SECRET
+            grant_type: "refresh_token",
+            refresh_token: REFRESH_TOKEN,
+            client_id: CLIENT_ID,
+            client_secret: CLIENT_SECRET
         })
-      }
-    );
+    });
 
     const tokenData = await tokenRes.json();
+    if (!tokenData.access_token) throw new Error("Could not refresh token.");
 
-    REFRESH_TOKEN = tokenData.refresh_token;
-    fs.writeFileSync("refresh_token.txt", REFRESH_TOKEN);
-
-    res.send("Login successful. Refresh token saved.");
-
-  } catch (err) {
-    console.log(err);
-    res.send("Login failed");
-  }
-});
-
-/* GET ACCESS TOKEN */
-async function getAccessToken() {
-  if (!REFRESH_TOKEN) throw new Error("REFRESH_TOKEN missing");
-
-  const tokenRes = await fetch(
-    "https://developer.api.autodesk.com/authentication/v2/token",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: REFRESH_TOKEN,
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET
-      })
+    // Important: Save the NEW refresh token (Autodesk rotates them occasionally)
+    if (tokenData.refresh_token) {
+        REFRESH_TOKEN = tokenData.refresh_token;
+        fs.writeFileSync("refresh_token.txt", REFRESH_TOKEN);
     }
-  );
-
-  const tokenData = await tokenRes.json();
-
-  if (!tokenData.access_token) {
-    console.log(tokenData);
-    throw new Error("Failed to get access token");
-  }
-
-  if (tokenData.refresh_token) {
-    REFRESH_TOKEN = tokenData.refresh_token;
-    fs.writeFileSync("refresh_token.txt", REFRESH_TOKEN);
-  }
-
-  return tokenData.access_token;
+    return tokenData.access_token;
 }
 
-/* DATA ENDPOINT */
+/* THE DATA FETCHER */
 app.get("/data", async (req, res) => {
-  try {
-    const accessToken = await getAccessToken();
+    try {
+        const accessToken = await getAccessToken();
+        const headers = { Authorization: `Bearer ${accessToken}` };
 
-    /* HUBS */
-    const hubsRes = await fetch(
-      "https://developer.api.autodesk.com/project/v1/hubs",
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
+        // 1. Get Hubs (Accounts)
+        const hubsRes = await fetch("https://developer.api.autodesk.com/project/v1/hubs", { headers });
+        const hubs = await hubsRes.json();
+        const hub = hubs.data?.find(h => h.attributes?.extension?.type === "hubs:autodesk.bim360:Account");
 
-    const hubs = await hubsRes.json();
+        if (!hub) return res.json({ error: "No BIM360/ACC Account found" });
 
-    const hub = hubs.data.find(
-      h => h.attributes?.extension?.type === "hubs:autodesk.bim360:Account"
-    );
+        // 2. Get Projects
+        const projRes = await fetch(`https://developer.api.autodesk.com/project/v1/hubs/${hub.id}/projects`, { headers });
+        const projects = await projRes.json();
 
-    if (!hub) return res.json({ reviews: [], forms: [] });
+        let allReviews = [];
+        let allForms = [];
 
-    const hubId = hub.id;
+        for (const project of projects.data) {
+            const pName = project.attributes.name;
+            const fullProjectId = project.id; // b.xxxx
+            const cleanProjectId = project.id.replace("b.", ""); // xxxx (UUID)
 
-    /* PROJECTS */
-    const projRes = await fetch(
-      `https://developer.api.autodesk.com/project/v1/hubs/${hubId}/projects`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
+            // --- FETCH REVIEWS (ACC Docs) ---
+            // Use the "construction/reviews" endpoint for actual instances
+            const revRes = await fetch(`https://developer.api.autodesk.com/construction/reviews/v1/projects/${fullProjectId}/reviews`, { headers });
+            const revData = await revRes.json();
+            
+            if (revData.results) {
+                allReviews = allReviews.concat(revData.results.map(r => ({ ...r, projectName: pName })));
+            }
 
-    const projects = await projRes.json();
+            // --- FETCH FORMS (ACC Build) ---
+            // Build API requires the ID without the "b." prefix
+            const formRes = await fetch(`https://developer.api.autodesk.com/construction/forms/v1/projects/${cleanProjectId}/forms`, { headers });
+            const formData = await formRes.json();
 
-    console.log(
-      "PROJECT LIST:",
-      projects.data.map(p => ({
-        name: p.attributes.name,
-        id: p.id
-      }))
-    );
+            if (formData.results) {
+                allForms = allForms.concat(formData.results.map(f => ({ ...f, projectName: pName })));
+            }
+        }
 
-    let allReviews = [];
-    let allForms = [];
+        res.json({ reviews: allReviews, forms: allForms });
 
-    for (const project of projects.data) {
-
-      const projectName = project.attributes.name;
-
-      // KEEP full BIM360 id (with b.)
-      const projectId = project.id;
-
-      /* DOCS REVIEW WORKFLOWS */
-      const reviewsRes = await fetch(
-        `https://developer.api.autodesk.com/docs/reviews/v1/projects/${projectId}/review-workflows`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
-
-      const reviewsData = await reviewsRes.json();
-      console.log("REVIEWS RAW:", JSON.stringify(reviewsData, null, 2));
-
-      if (reviewsData.data) {
-        const reviews = reviewsData.data.map(r => ({
-          id: r.id,
-          name: r.attributes?.name,
-          status: r.attributes?.state,
-          createdAt: r.attributes?.createdAt,
-          project: projectName
-        }));
-        allReviews = allReviews.concat(reviews);
-      }
-
-      /* FORMS API */
-      const formsRes = await fetch(
-        `https://developer.api.autodesk.com/construction/forms/v1/projects/${projectId}/forms?limit=200&include=attachments`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
-
-      const formsData = await formsRes.json();
-      console.log("FORMS RAW:", JSON.stringify(formsData, null, 2));
-
-      if (formsData.results) {
-        const forms = formsData.results.map(f => ({
-          id: f.id,
-          name: f.name,
-          status: f.status,
-          createdAt: f.createdAt,
-          fileName: f.attachments?.[0]?.fileName || "No File",
-          project: projectName
-        }));
-        allForms = allForms.concat(forms);
-      }
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
     }
-
-    res.json({
-      reviews: allReviews,
-      forms: allForms
-    });
-
-  } catch (err) {
-    console.log(err);
-    res.json({
-      error: "backend error",
-      message: err.message
-    });
-  }
 });
 
-app.listen(PORT, () => {
-  console.log("Server running on port " + PORT);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
